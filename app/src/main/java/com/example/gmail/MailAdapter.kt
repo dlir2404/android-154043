@@ -1,6 +1,5 @@
 package com.example.gmail
 
-import android.media.Image
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -18,7 +17,7 @@ class MailAdapter(val mails: List<Mail>) : RecyclerView.Adapter<MailAdapter.Mail
     override fun onBindViewHolder(holder: MailAdapter.MailViewHolder, position: Int) {
         val mail = mails[position]
         holder.avatarCharacter.text = mail.sender[0].toString();
-        holder.avatarBackground.setImageResource(R.drawable.circle)
+        holder.avatarBackground.setImageResource(mail.avatarId);
         holder.sender.text = mail.sender;
         holder.title.text = mail.title;
         holder.content.text = mail.content;
