@@ -1,11 +1,11 @@
 package vn.edu.hust.studentman
 
+import android.app.Dialog
 import android.os.Bundle
 import android.widget.Button
-import androidx.activity.enableEdgeToEdge
+import android.widget.EditText
+import androidx.appcompat.app.ActionBar
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 
@@ -37,11 +37,36 @@ class MainActivity : AppCompatActivity() {
       StudentModel("Lê Văn Vũ", "SV020")
     )
 
-    val studentAdapter = StudentAdapter(students)
+    val studentAdapter = StudentAdapter(students, this)
 
     findViewById<RecyclerView>(R.id.recycler_view_students).run {
       adapter = studentAdapter
       layoutManager = LinearLayoutManager(this@MainActivity)
+    }
+
+    //add new
+    val addNewDialog = Dialog(this)
+    addNewDialog.setContentView(R.layout.add_new_dialog)
+    addNewDialog.window?.setLayout(ActionBar.LayoutParams.MATCH_PARENT, ActionBar.LayoutParams.WRAP_CONTENT)
+
+    addNewDialog.findViewById<Button>(R.id.button_ok).setOnClickListener {
+      val editHoten = addNewDialog.findViewById<EditText>(R.id.edit_hoten)
+      val editMssv = addNewDialog.findViewById<EditText>(R.id.edit_mssv)
+      val hoten = editHoten.text.toString()
+      val mssv = editMssv.text.toString()
+
+      students.add(StudentModel(hoten, mssv));
+      studentAdapter.notifyItemInserted(students.size - 1);
+
+      addNewDialog.dismiss()
+    }
+
+    addNewDialog.findViewById<Button>(R.id.button_cancel).setOnClickListener {
+      addNewDialog.dismiss()
+    }
+
+    findViewById<Button>(R.id.btn_add_new).setOnClickListener {
+      addNewDialog.show();
     }
   }
 }
