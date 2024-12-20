@@ -1,15 +1,16 @@
 package com.example.filemanager
 
-import android.Manifest
-import android.content.pm.PackageManager
+import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.provider.Settings
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
-import androidx.core.content.ContextCompat
+import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -21,7 +22,6 @@ class FileListFragment : Fragment() {
     private var currentPath: File = Environment.getExternalStorageDirectory()
 
     companion object {
-        private const val PERMISSION_REQUEST_CODE = 123
         fun newInstance() = FileListFragment()
     }
 
@@ -38,56 +38,33 @@ class FileListFragment : Fragment() {
         recyclerView = view.findViewById(R.id.recyclerView)
         recyclerView.layoutManager = LinearLayoutManager(context)
         checkPermissions()
+        loadFiles()
     }
 
     private fun checkPermissions() {
-        if (ContextCompat.checkSelfPermission(
-                requireContext(),
-                Manifest.permission.READ_EXTERNAL_STORAGE
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            requestPermissions(
-                arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE),
-                PERMISSION_REQUEST_CODE
-            )
-        } else {
-            loadFiles()
-        }
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        if (requestCode == PERMISSION_REQUEST_CODE && grantResults.isNotEmpty() &&
-            grantResults[0] == PackageManager.PERMISSION_GRANTED
-        ) {
-            loadFiles()
-        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
+            if (!Environment.isExternalStorageManager()) {
+                val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                startActivity(intent)
+            }
     }
 
     private fun loadFiles() {
         val files = currentPath.listFiles()
-        Log.d("FileManager", "All files: ${files?.map { it.name }}")
-
-        val filteredFiles = files?.filter { file ->
-            val result = file.isDirectory || file.extension.lowercase() in listOf("txt", "log", "json", "xml")
-            Log.d("FileManager", "File: ${file.name}, isDir: ${file.isDirectory}, ext: ${file.extension}, passed: $result")
-            result
-        }
-
-        adapter = FileAdapter(filteredFiles?.toList() ?: emptyList()) { file ->
+        adapter = FileAdapter(files?.toList() ?: emptyList()) { file ->
             when {
                 file.isDirectory -> {
                     currentPath = file
                     loadFiles()
                 }
-                file.extension.lowercase() in listOf("txt", "log", "json", "xml") -> {
+                file.extension.lowercase() in listOf("txt", "log", "json", "xml", "csv") -> {
                     parentFragmentManager.beginTransaction()
                         .replace(R.id.container, TextViewerFragment.newInstance(file.absolutePath))
                         .addToBackStack(null)
                         .commit()
+                }
+                else -> {
+                    Toast.makeText(requireContext(), "Unsupported file type", Toast.LENGTH_SHORT).show()
                 }
             }
         }
