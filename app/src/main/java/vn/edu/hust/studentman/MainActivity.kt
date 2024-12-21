@@ -1,6 +1,7 @@
 package vn.edu.hust.studentman
 
 import android.app.AlertDialog
+import android.database.sqlite.SQLiteDatabase
 import android.os.Bundle
 import android.util.Log
 import android.view.ContextMenu
@@ -8,6 +9,7 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.widget.AdapterView.AdapterContextMenuInfo
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.snackbar.Snackbar
 
@@ -15,6 +17,8 @@ class MainActivity : AppCompatActivity(),
   AddStudentFragment.IAddStudentInteraction,
   ListStudentFragment.IListStudentInteraction,
   EditStudentFragment.IEditStudentInteraction {
+  private lateinit var db: SQLiteDatabase
+
 
   private lateinit var _students: MutableList<StudentModel>;
   private lateinit var _studentAdapter: StudentAdapter;
@@ -27,28 +31,27 @@ class MainActivity : AppCompatActivity(),
     super.onCreate(savedInstanceState)
     setContentView(R.layout.activity_main)
 
-    _students = mutableListOf(
-      StudentModel("Nguyễn Văn An", "SV001"),
-      StudentModel("Trần Thị Bảo", "SV002"),
-      StudentModel("Lê Hoàng Cường", "SV003"),
-      StudentModel("Phạm Thị Dung", "SV004"),
-      StudentModel("Đỗ Minh Đức", "SV005"),
-      StudentModel("Vũ Thị Hoa", "SV006"),
-      StudentModel("Hoàng Văn Hải", "SV007"),
-      StudentModel("Bùi Thị Hạnh", "SV008"),
-      StudentModel("Đinh Văn Hùng", "SV009"),
-      StudentModel("Nguyễn Thị Linh", "SV010"),
-      StudentModel("Phạm Văn Long", "SV011"),
-      StudentModel("Trần Thị Mai", "SV012"),
-      StudentModel("Lê Thị Ngọc", "SV013"),
-      StudentModel("Vũ Văn Nam", "SV014"),
-      StudentModel("Hoàng Thị Phương", "SV015"),
-      StudentModel("Đỗ Văn Quân", "SV016"),
-      StudentModel("Nguyễn Thị Thu", "SV017"),
-      StudentModel("Trần Văn Tài", "SV018"),
-      StudentModel("Phạm Thị Tuyết", "SV019"),
-      StudentModel("Lê Văn Vũ", "SV020")
-    )
+    db = SQLiteDatabase.openDatabase(this.filesDir.path + "/student_man", null,
+      SQLiteDatabase.CREATE_IF_NECESSARY)
+
+    val createTable = """
+      CREATE TABLE IF NOT EXISTS students(
+      studentId TEXT PRIMARY KEY,
+      studentName TEXT
+      )
+    """.trimIndent()
+    db.execSQL(createTable)
+
+    _students = mutableListOf()
+    loadStudents()
+  }
+
+  override fun onDestroy()
+  {
+    super.onDestroy()
+    if(::db.isInitialized && db.isOpen){
+      db.close()
+    }
   }
 
   override fun onCreateOptionsMenu(menu: Menu?): Boolean {
@@ -107,36 +110,58 @@ class MainActivity : AppCompatActivity(),
         deletedStudent = student
         deletedPosition = position
 
-        _students.removeAt(position)
-        _studentAdapter.notifyDataSetChanged()
+        db.beginTransaction()
+        try{
+          val query = """DELETE FROM students WHERE studentId = '${deletedStudent!!.studentId}'"""
+          db.execSQL(query)
+          db.setTransactionSuccessful()
 
-        val rootView = findViewById<View>(android.R.id.content)
-        Snackbar.make(rootView, "Deleted successfully", Snackbar.LENGTH_LONG)
-            .setAction("Undo") {
-                if (deletedStudent !== null && deletedPosition != -1) {
-                    _students.add(deletedPosition, deletedStudent!!)
-                    _studentAdapter.notifyDataSetChanged()
+          loadStudents()
+          _studentAdapter.notifyDataSetChanged()
 
-                    deletedStudent = null;
-                    deletedPosition = -1;
-
-                    Snackbar.make(rootView, "Undo successfully", Snackbar.LENGTH_LONG).show()
-                }
-            }
+          val rootView = findViewById<View>(android.R.id.content)
+          Snackbar.make(rootView, "Deleted successfully", Snackbar.LENGTH_LONG)
             .show()
+        }catch(e: Exception){
+          e.printStackTrace()
+          Toast.makeText(this, "DELETE ERROR", Toast.LENGTH_SHORT).show()
+        }finally {
+          db.endTransaction()
+        }
       }
       .setNegativeButton("Cancel", null)
       .show()
   }
-
 
   override fun onCancelAdd() {
     supportFragmentManager.popBackStack();
   }
 
   override fun onAddStudent(hoten: String, mssv: String) {
-    _students.add(StudentModel(hoten, mssv));
-    supportFragmentManager.popBackStack();
+
+    if (hoten != null && mssv != null) {
+      db.beginTransaction()
+      try {
+        val query = "INSERT OR REPLACE INTO students (studentId, studentName) VALUES (?, ?)";
+
+        db.execSQL(query, arrayOf(mssv, hoten))
+        db.setTransactionSuccessful()
+
+        loadStudents()
+        _studentAdapter.notifyDataSetChanged()
+
+        supportFragmentManager.popBackStack();
+
+        val rootView = findViewById<View>(android.R.id.content)
+        Snackbar.make(rootView, "Added new student", Snackbar.LENGTH_LONG)
+          .show()
+      } catch (e: Exception) {
+        e.printStackTrace()
+        Toast.makeText(this, "Database Error!", Toast.LENGTH_SHORT).show()
+      } finally {
+        db.endTransaction()
+      }
+    }
   }
 
   override fun getListStudent(): MutableList<StudentModel> {
@@ -152,20 +177,56 @@ class MainActivity : AppCompatActivity(),
   }
 
   override fun onEditStudent(hoten: String, mssv: String) {
-    Log.v("testtttt", ">>>>>>>${hoten} - ${mssv}")
     if (editingStudent == null) {
       Snackbar.make(findViewById(android.R.id.content), "Invalid student position", Snackbar.LENGTH_LONG).show()
       return
     } else {
-      if (hoten != null) {
-        editingStudent!!.studentName = hoten
-      }
+      if(hoten != null && mssv != null ){
+        db.beginTransaction()
+        try{
+          val query = """
+                        update students
+                        set studentName = '$hoten', studentId='$mssv'
+                        where studentId = '${editingStudent!!.studentId}'
+                    """.trimIndent()
+          db.execSQL(query)
+          db.setTransactionSuccessful()
 
-      if (mssv != null) {
-        editingStudent!!.studentId = mssv
+          loadStudents()
+          _studentAdapter.notifyDataSetChanged()
+
+          supportFragmentManager.popBackStack();
+          val rootView = findViewById<View>(android.R.id.content)
+          Snackbar.make(rootView, "Update successfully", Snackbar.LENGTH_LONG)
+            .show()
+        }catch(e: Exception){
+          Toast.makeText(this, "Database Error", Toast.LENGTH_SHORT).show()
+          e.printStackTrace()
+        }finally {
+          db.endTransaction()
+        }
       }
     }
+  }
 
-    supportFragmentManager.popBackStack();
+  private fun loadStudents(){
+    _students.clear()
+    val cs = db.query(
+      "students",
+      arrayOf("studentId", "studentName"),
+      null,
+      null,
+      null,
+      null,
+      null)
+    cs.moveToFirst()
+    if (cs.moveToFirst()) {
+      do {
+        val id = cs.getString(0)
+        val name = cs.getString(1)
+        _students.add(StudentModel(name, id))
+      } while (cs.moveToNext())
+    }
+    cs.close()
   }
 }
