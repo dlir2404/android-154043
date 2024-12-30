@@ -1,9 +1,6 @@
 package vn.edu.hust.studentman
 
-import android.app.AlertDialog
-import android.database.sqlite.SQLiteDatabase
 import android.os.Bundle
-import android.util.Log
 import android.view.ContextMenu
 import android.view.Menu
 import android.view.MenuItem
@@ -11,52 +8,50 @@ import android.view.View
 import android.widget.AdapterView.AdapterContextMenuInfo
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.room.Room
 import com.google.android.material.snackbar.Snackbar
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : AppCompatActivity(),
   AddStudentFragment.IAddStudentInteraction,
   ListStudentFragment.IListStudentInteraction,
   EditStudentFragment.IEditStudentInteraction {
-  private lateinit var db: SQLiteDatabase
 
+  private lateinit var db: AppDatabase
+  private lateinit var studentDao: StudentDao
+  private lateinit var _students: MutableList<StudentModel>
+  private lateinit var _studentAdapter: StudentAdapter
 
-  private lateinit var _students: MutableList<StudentModel>;
-  private lateinit var _studentAdapter: StudentAdapter;
-
-  private var deletedStudent: StudentModel? = null;
-  private var editingStudent: StudentModel? = null;
-  private var deletedPosition: Int = -1;
+  private var deletedStudent: StudentModel? = null
+  private var editingStudent: StudentModel? = null
+  private var deletedPosition: Int = -1
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     setContentView(R.layout.activity_main)
 
-    db = SQLiteDatabase.openDatabase(this.filesDir.path + "/student_man", null,
-      SQLiteDatabase.CREATE_IF_NECESSARY)
+    // Initialize Room database
+    db = Room.databaseBuilder(
+      applicationContext,
+      AppDatabase::class.java,
+      "student_database"
+    ).build()
 
-    val createTable = """
-      CREATE TABLE IF NOT EXISTS students(
-      studentId TEXT PRIMARY KEY,
-      studentName TEXT
-      )
-    """.trimIndent()
-    db.execSQL(createTable)
-
+    studentDao = db.studentDao()
     _students = mutableListOf()
-    loadStudents()
-  }
 
-  override fun onDestroy()
-  {
-    super.onDestroy()
-    if(::db.isInitialized && db.isOpen){
-      db.close()
+    // Load students on app start
+    CoroutineScope(Dispatchers.IO).launch {
+      loadStudents()
     }
   }
 
   override fun onCreateOptionsMenu(menu: Menu?): Boolean {
     menuInflater.inflate(R.menu.appbar_menu, menu)
-    return true;
+    return true
   }
 
   override fun onOptionsItemSelected(item: MenuItem): Boolean {
@@ -77,16 +72,16 @@ class MainActivity : AppCompatActivity(),
     v: View?,
     menuInfo: ContextMenu.ContextMenuInfo?
   ) {
-    menuInflater.inflate(R.menu.student_context_menu, menu);
-    super.onCreateContextMenu(menu, v, menuInfo);
+    menuInflater.inflate(R.menu.student_context_menu, menu)
+    super.onCreateContextMenu(menu, v, menuInfo)
   }
 
   override fun onContextItemSelected(item: MenuItem): Boolean {
-    val pos = (item.menuInfo as AdapterContextMenuInfo).position;
+    val pos = (item.menuInfo as AdapterContextMenuInfo).position
 
     when (item.itemId) {
       R.id.action_edit -> {
-        moveToEditFragment(_students[pos]);
+        moveToEditFragment(_students[pos])
       }
       R.id.action_delete -> {
         showDeleteDialog(_students[pos], pos)
@@ -98,35 +93,40 @@ class MainActivity : AppCompatActivity(),
   private fun moveToEditFragment(student: StudentModel) {
     editingStudent = student
     supportFragmentManager.beginTransaction()
-      .replace(R.id.fragmentContainerView, EditStudentFragment.newInstance(student.studentName, student.studentId))
+      .replace(
+        R.id.fragmentContainerView,
+        EditStudentFragment.newInstance(student.studentName, student.studentId)
+      )
       .addToBackStack("EDIT_STUDENT")
       .commit()
   }
 
   private fun showDeleteDialog(student: StudentModel, position: Int) {
-    AlertDialog.Builder(this)
+    android.app.AlertDialog.Builder(this)
       .setTitle("Delete student?")
       .setPositiveButton("OK") { _, _ ->
         deletedStudent = student
         deletedPosition = position
 
-        db.beginTransaction()
-        try{
-          val query = """DELETE FROM students WHERE studentId = '${deletedStudent!!.studentId}'"""
-          db.execSQL(query)
-          db.setTransactionSuccessful()
+        CoroutineScope(Dispatchers.IO).launch {
+          try {
+            studentDao.deleteStudent(StudentModel(student.studentId, student.studentName))
+            loadStudents()
 
-          loadStudents()
-          _studentAdapter.notifyDataSetChanged()
-
-          val rootView = findViewById<View>(android.R.id.content)
-          Snackbar.make(rootView, "Deleted successfully", Snackbar.LENGTH_LONG)
-            .show()
-        }catch(e: Exception){
-          e.printStackTrace()
-          Toast.makeText(this, "DELETE ERROR", Toast.LENGTH_SHORT).show()
-        }finally {
-          db.endTransaction()
+            withContext(Dispatchers.Main) {
+              _studentAdapter.notifyDataSetChanged()
+              Snackbar.make(
+                findViewById(android.R.id.content),
+                "Deleted successfully",
+                Snackbar.LENGTH_LONG
+              ).show()
+            }
+          } catch (e: Exception) {
+            withContext(Dispatchers.Main) {
+              Toast.makeText(this@MainActivity, "DELETE ERROR", Toast.LENGTH_SHORT).show()
+            }
+            e.printStackTrace()
+          }
         }
       }
       .setNegativeButton("Cancel", null)
@@ -134,38 +134,37 @@ class MainActivity : AppCompatActivity(),
   }
 
   override fun onCancelAdd() {
-    supportFragmentManager.popBackStack();
+    supportFragmentManager.popBackStack()
   }
 
   override fun onAddStudent(hoten: String, mssv: String) {
+    if (hoten.isNotEmpty() && mssv.isNotEmpty()) {
+      CoroutineScope(Dispatchers.IO).launch {
+        try {
+          studentDao.insertStudent(StudentModel(mssv, hoten))
+          loadStudents()
 
-    if (hoten != null && mssv != null) {
-      db.beginTransaction()
-      try {
-        val query = "INSERT OR REPLACE INTO students (studentId, studentName) VALUES (?, ?)";
-
-        db.execSQL(query, arrayOf(mssv, hoten))
-        db.setTransactionSuccessful()
-
-        loadStudents()
-        _studentAdapter.notifyDataSetChanged()
-
-        supportFragmentManager.popBackStack();
-
-        val rootView = findViewById<View>(android.R.id.content)
-        Snackbar.make(rootView, "Added new student", Snackbar.LENGTH_LONG)
-          .show()
-      } catch (e: Exception) {
-        e.printStackTrace()
-        Toast.makeText(this, "Database Error!", Toast.LENGTH_SHORT).show()
-      } finally {
-        db.endTransaction()
+          withContext(Dispatchers.Main) {
+            _studentAdapter.notifyDataSetChanged()
+            supportFragmentManager.popBackStack()
+            Snackbar.make(
+              findViewById(android.R.id.content),
+              "Added new student",
+              Snackbar.LENGTH_LONG
+            ).show()
+          }
+        } catch (e: Exception) {
+          withContext(Dispatchers.Main) {
+            Toast.makeText(this@MainActivity, "Database Error!", Toast.LENGTH_SHORT).show()
+          }
+          e.printStackTrace()
+        }
       }
     }
   }
 
   override fun getListStudent(): MutableList<StudentModel> {
-    return _students;
+    return _students
   }
 
   override fun setStudentAdapter(studentAdapter: StudentAdapter) {
@@ -173,60 +172,47 @@ class MainActivity : AppCompatActivity(),
   }
 
   override fun onCancelEdit() {
-    supportFragmentManager.popBackStack();
+    supportFragmentManager.popBackStack()
   }
 
   override fun onEditStudent(hoten: String, mssv: String) {
     if (editingStudent == null) {
-      Snackbar.make(findViewById(android.R.id.content), "Invalid student position", Snackbar.LENGTH_LONG).show()
+      Snackbar.make(
+        findViewById(android.R.id.content),
+        "Invalid student position",
+        Snackbar.LENGTH_LONG
+      ).show()
       return
-    } else {
-      if(hoten != null && mssv != null ){
-        db.beginTransaction()
-        try{
-          val query = """
-                        update students
-                        set studentName = '$hoten', studentId='$mssv'
-                        where studentId = '${editingStudent!!.studentId}'
-                    """.trimIndent()
-          db.execSQL(query)
-          db.setTransactionSuccessful()
+    }
 
+    if (hoten.isNotEmpty() && mssv.isNotEmpty()) {
+      CoroutineScope(Dispatchers.IO).launch {
+        try {
+          studentDao.updateStudent(StudentModel(mssv, hoten))
           loadStudents()
-          _studentAdapter.notifyDataSetChanged()
 
-          supportFragmentManager.popBackStack();
-          val rootView = findViewById<View>(android.R.id.content)
-          Snackbar.make(rootView, "Update successfully", Snackbar.LENGTH_LONG)
-            .show()
-        }catch(e: Exception){
-          Toast.makeText(this, "Database Error", Toast.LENGTH_SHORT).show()
+          withContext(Dispatchers.Main) {
+            _studentAdapter.notifyDataSetChanged()
+            supportFragmentManager.popBackStack()
+            Snackbar.make(
+              findViewById(android.R.id.content),
+              "Update successfully",
+              Snackbar.LENGTH_LONG
+            ).show()
+          }
+        } catch (e: Exception) {
+          withContext(Dispatchers.Main) {
+            Toast.makeText(this@MainActivity, "Database Error", Toast.LENGTH_SHORT).show()
+          }
           e.printStackTrace()
-        }finally {
-          db.endTransaction()
         }
       }
     }
   }
 
-  private fun loadStudents(){
+  private suspend fun loadStudents() {
     _students.clear()
-    val cs = db.query(
-      "students",
-      arrayOf("studentId", "studentName"),
-      null,
-      null,
-      null,
-      null,
-      null)
-    cs.moveToFirst()
-    if (cs.moveToFirst()) {
-      do {
-        val id = cs.getString(0)
-        val name = cs.getString(1)
-        _students.add(StudentModel(name, id))
-      } while (cs.moveToNext())
-    }
-    cs.close()
+    val studentEntities = studentDao.getAllStudents()
+    _students.addAll(studentEntities.map { StudentModel(it.studentId, it.studentName) })
   }
 }

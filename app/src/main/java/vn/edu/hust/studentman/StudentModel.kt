@@ -1,3 +1,11 @@
 package vn.edu.hust.studentman
 
-data class StudentModel(var studentName: String, var studentId: String)
+import androidx.room.ColumnInfo
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+
+@Entity(tableName = "students")
+data class StudentModel(
+    @PrimaryKey var studentId: String,
+    @ColumnInfo(name = "student_name") var studentName: String
+)
